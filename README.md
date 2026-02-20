@@ -104,8 +104,8 @@ examples/
 Clone repository:
 
 ```bash
-git clone https://github.com/yourusername/AWS-Security-Scanner.git
-cd aws-security-scanner
+git clone https://github.com/parthchoutapelly/AWS-Security-Scanner.git
+cd AWS-Security-Scanner
 ```
 
 Create virtual environment:
