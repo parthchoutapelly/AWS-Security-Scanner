@@ -104,7 +104,7 @@ examples/
 Clone repository:
 
 ```bash
-git clone https://github.com/yourusername/aws-security-scanner.git
+git clone https://github.com/yourusername/AWS-Security-Scanner.git
 cd aws-security-scanner
 ```
 
