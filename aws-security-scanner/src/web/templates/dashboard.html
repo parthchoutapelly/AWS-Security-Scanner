@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AWS Security Scanner — Live Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+  <style>
+    :root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3e;--text:#e2e8f0;--muted:#94a3b8;--accent:#6366f1;--critical:#ef4444;--high:#f97316;--medium:#eab308;--low:#22c55e;}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--card);border-bottom:1px solid var(--border)}
+    .topbar h1{font-size:18px;font-weight:700}
+    .topbar .badge{background:rgba(99,102,241,.2);color:#a5b4fc;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600}
+    .layout{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 53px)}
+    .sidebar{background:var(--card);border-right:1px solid var(--border);padding:20px 0}
+    .nav-item{padding:10px 20px;cursor:pointer;display:flex;align-items:center;gap:10px;color:var(--muted);border-left:3px solid transparent;transition:.15s}
+    .nav-item:hover{background:rgba(255,255,255,.04);color:var(--text)}
+    .nav-item.active{color:#a5b4fc;border-left-color:var(--accent);background:rgba(99,102,241,.08)}
+    .main{padding:24px;overflow-y:auto}
+    .page{display:none}.page.active{display:block}
+    .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+    .card h2{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
+    .stat-value{font-size:34px;font-weight:800}
+    .stat-label{font-size:12px;color:var(--muted);margin-top:4px}
+    .critical{color:var(--critical)}.high{color:var(--high)}.medium{color:var(--medium)}.low{color:var(--low)}
+    .badge-c{background:rgba(239,68,68,.15);color:var(--critical)}.badge-h{background:rgba(249,115,22,.15);color:var(--high)}.badge-m{background:rgba(234,179,8,.15);color:var(--medium)}.badge-l{background:rgba(34,197,94,.15);color:var(--low)}
+    .sbadge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700}
+    .section-title{font-size:15px;font-weight:700;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+    table{width:100%;border-collapse:collapse}
+    thead th{background:var(--card);padding:10px 14px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)}
+    tbody tr{border-bottom:1px solid var(--border);transition:.12s}
+    tbody tr:last-child{border-bottom:none}
+    tbody tr:hover{background:rgba(255,255,255,.03)}
+    tbody td{padding:10px 14px;font-size:13px;vertical-align:top}
+    .mono{font-family:monospace;font-size:12px;color:var(--muted);word-break:break-all}
+    .chart-wrap{position:relative;height:220px}
+    .progress{background:var(--border);border-radius:99px;height:8px;overflow:hidden;margin-top:8px}
+    .progress-fill{height:100%;border-radius:99px;background:var(--accent);transition:width .6s}
+
+    /* Scan trigger panel */
+    .scan-panel{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:12px;margin-bottom:24px}
+    .field{display:flex;flex-direction:column;gap:4px}
+    .field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+    input,select{background:#0f1117;border:1px solid var(--border);color:var(--text);padding:7px 12px;border-radius:8px;font-size:13px;outline:none}
+    input:focus,select:focus{border-color:var(--accent)}
+    .btn{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer}
+    .btn:hover{opacity:.85}.btn:disabled{opacity:.4;cursor:not-allowed}
+    .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
+
+    /* Live log */
+    #live-log{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:monospace;font-size:12px;height:140px;overflow-y:auto;color:#7dd3fc;margin-top:12px}
+
+    /* Attack graph */
+    #attack-graph-svg{width:100%;height:500px;background:#0d1117;border-radius:12px;border:1px solid var(--border)}
+    .node-label{font-size:10px;fill:var(--muted);pointer-events:none}
+    .tooltip-g{position:absolute;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:12px;pointer-events:none;opacity:0;transition:opacity .2s}
+
+    /* Framework tabs */
+    .tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px}
+    .tab{padding:8px 16px;cursor:pointer;color:var(--muted);font-size:13px;border-bottom:2px solid transparent;margin-bottom:-1px}
+    .tab.active{color:#a5b4fc;border-bottom-color:var(--accent)}
+    .tab-content{display:none}.tab-content.active{display:block}
+    .ctrl-row{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)}
+    .ctrl-row:last-child{border:none}
+    .ctrl-id{font-family:monospace;font-size:12px;min-width:70px;color:var(--accent);padding-top:2px}
+    .ctrl-info{flex:1;font-size:13px}
+    .ctrl-sec{font-size:11px;color:var(--muted)}
+    .pass-badge{background:rgba(34,197,94,.15);color:var(--low);border-radius:99px;padding:2px 8px;font-size:11px;font-weight:700}
+    .fail-badge{background:rgba(239,68,68,.15);color:var(--critical);border-radius:99px;padding:2px 8px;font-size:11px;font-weight:700}
+
+    /* Score ring */
+    .score-ring{position:relative;width:80px;height:80px}
+    .score-ring svg{transform:rotate(-90deg)}
+    .score-ring .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800}
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:12px">
+    <h1>🔒 AWS Security Scanner</h1>
+    <span class="badge">v2.0 Enterprise</span>
+  </div>
+  <div style="color:var(--muted);font-size:12px" id="last-updated">Loading...</div>
+</div>
+
+<div class="layout">
+  <!-- Sidebar nav -->
+  <nav class="sidebar">
+    <div class="nav-item active" onclick="showPage('overview')">📊 Overview</div>
+    <div class="nav-item" onclick="showPage('findings')">🔍 Findings</div>
+    <div class="nav-item" onclick="showPage('attack-graph')">🔗 Attack Graph</div>
+    <div class="nav-item" onclick="showPage('compliance')">✅ Compliance</div>
+    <div class="nav-item" onclick="showPage('trends')">📈 Trends</div>
+    <div class="nav-item" onclick="showPage('scan')">▶ Run Scan</div>
+  </nav>
+
+  <main class="main">
+
+    <!-- ── OVERVIEW ─────────────────────────────────────────────── -->
+    <div id="page-overview" class="page active">
+      <div class="section-title">Security Posture Overview</div>
+      <div class="grid-4">
+        <div class="card"><h2>Total Findings</h2><div class="stat-value" id="ov-total">—</div><div class="stat-label" id="ov-account"></div></div>
+        <div class="card"><h2>Critical</h2><div class="stat-value critical" id="ov-critical">—</div><div class="stat-label">Immediate action required</div></div>
+        <div class="card"><h2>Attack Paths</h2><div class="stat-value" id="ov-paths" style="color:#f97316">—</div><div class="stat-label">Exploitable chains detected</div></div>
+        <div class="card"><h2>CIS Score</h2><div class="stat-value" id="ov-score">—</div><div class="stat-label" id="ov-controls"></div></div>
+      </div>
+      <div class="grid-2">
+        <div class="card"><h2>Findings by Severity</h2><div class="chart-wrap"><canvas id="sev-chart"></canvas></div></div>
+        <div class="card"><h2>Findings by Service</h2><div class="chart-wrap"><canvas id="svc-chart"></canvas></div></div>
+      </div>
+      <div class="card">
+        <h2>Framework Compliance Scores</h2>
+        <div style="display:flex;gap:32px;padding:8px 0" id="fw-scores"></div>
+      </div>
+    </div>
+
+    <!-- ── FINDINGS ──────────────────────────────────────────────── -->
+    <div id="page-findings" class="page">
+      <div class="section-title">All Findings</div>
+      <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <select id="f-sev" onchange="renderFindings()"><option value="">All Severities</option><option>CRITICAL</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option></select>
+        <select id="f-svc" onchange="renderFindings()"><option value="">All Services</option></select>
+        <input type="search" id="f-q" placeholder="Search…" oninput="renderFindings()" style="flex:1;min-width:200px"/>
+        <button class="btn btn-ghost" onclick="exportFindingsCSV()">⬇ CSV</button>
+      </div>
+      <div style="overflow-x:auto;border:1px solid var(--border);border-radius:12px">
+        <table><thead><tr><th>#</th><th>Risk</th><th>Severity</th><th>Service</th><th>Resource</th><th>Issue</th><th>CIS</th></tr></thead>
+        <tbody id="findings-tbody"></tbody></table>
+      </div>
+    </div>
+
+    <!-- ── ATTACK GRAPH ──────────────────────────────────────────── -->
+    <div id="page-attack-graph" class="page">
+      <div class="section-title">Infrastructure Attack Graph</div>
+      <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="display:flex;gap:10px;align-items:center;font-size:12px">
+          <span style="width:12px;height:12px;border-radius:50%;background:#f59e0b;display:inline-block"></span> S3
+          <span style="width:12px;height:12px;border-radius:50%;background:#6366f1;display:inline-block"></span> IAM
+          <span style="width:12px;height:12px;border-radius:50%;background:#10b981;display:inline-block"></span> EC2
+          <span style="width:12px;height:12px;border-radius:50%;background:#3b82f6;display:inline-block"></span> RDS
+          <span style="width:12px;height:4px;background:#ef4444;display:inline-block"></span> Attack path
+          <span style="width:12px;height:4px;background:#94a3b8;display:inline-block"></span> Relationship
+        </div>
+      </div>
+      <svg id="attack-graph-svg"></svg>
+      <div id="attack-paths-list" style="margin-top:20px"></div>
+    </div>
+
+    <!-- ── COMPLIANCE ────────────────────────────────────────────── -->
+    <div id="page-compliance" class="page">
+      <div class="section-title">Multi-Framework Compliance</div>
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('cis')">CIS AWS v1.5</div>
+        <div class="tab" onclick="switchTab('nist')">NIST CSF</div>
+        <div class="tab" onclick="switchTab('pci')">PCI-DSS v4.0</div>
+      </div>
+      <div id="tab-cis" class="tab-content active"><div id="ctrl-cis" class="card"></div></div>
+      <div id="tab-nist" class="tab-content"><div id="ctrl-nist" class="card"></div></div>
+      <div id="tab-pci" class="tab-content"><div id="ctrl-pci" class="card"></div></div>
+    </div>
+
+    <!-- ── TRENDS ────────────────────────────────────────────────── -->
+    <div id="page-trends" class="page">
+      <div class="section-title">Historical Compliance Trends</div>
+      <div class="card" style="margin-bottom:24px">
+        <h2>CIS / NIST / PCI Scores Over Time</h2>
+        <div class="chart-wrap" style="height:300px"><canvas id="trend-chart"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>Scan History</h2>
+        <div style="overflow-x:auto">
+          <table><thead><tr><th>Scan ID</th><th>Timestamp</th><th>Account</th><th>Findings</th><th>CIS</th><th>NIST</th><th>PCI</th></tr></thead>
+          <tbody id="history-tbody"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RUN SCAN ──────────────────────────────────────────────── -->
+    <div id="page-scan" class="page">
+      <div class="section-title">Run Live Scan</div>
+      <div class="scan-panel">
+        <div class="field"><label>AWS Profile</label><input id="s-profile" placeholder="default" style="width:160px"/></div>
+        <div class="field"><label>Region</label>
+          <select id="s-region">
+            <option>us-east-1</option><option>us-west-2</option><option>eu-west-1</option>
+            <option>eu-central-1</option><option>ap-southeast-1</option><option>ap-northeast-1</option>
+          </select>
+        </div>
+        <div class="field"><label>Services</label>
+          <select id="s-services">
+            <option value="all">All Services</option>
+            <option value="s3,iam">S3 + IAM</option>
+            <option value="ec2,vpc">EC2 + VPC</option>
+          </select>
+        </div>
+        <button class="btn" id="scan-btn" onclick="startScan()">▶ Start Scan</button>
+      </div>
+
+      <div class="card">
+        <h2>Scan Progress</h2>
+        <div class="progress"><div class="progress-fill" id="scan-progress" style="width:0%"></div></div>
+        <div id="scan-status" style="color:var(--muted);font-size:12px;margin-top:8px">Idle — click Start Scan to begin</div>
+        <div id="live-log"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Tooltip -->
+<div class="tooltip-g" id="tooltip"></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+let state = { findings: [], compliance: {}, attack_paths: [], graph_data: {nodes:[],links:[]}, stats: {}, history: [] };
+let sevChart = null, svcChart = null, trendChart = null;
+
+// ── Navigation ────────────────────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name === 'attack-graph') renderAttackGraph();
+  if (name === 'trends') loadTrends();
+}
+
+function switchTab(key) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-' + key).classList.add('active');
+}
+
+// ── Data loading ──────────────────────────────────────────────────────────
+async function loadLatest() {
+  try {
+    const res = await fetch('/api/latest');
+    if (!res.ok) { console.warn('No scan data yet'); return; }
+    const scan = await res.json();
+    state.findings = scan.findings || [];
+    state.attack_paths = scan.attack_paths || [];
+    state.graph_data = scan.graph_data || {nodes:[], links:[]};
+
+    // Rebuild compliance and stats from raw scan data
+    state.compliance = {};
+    state.stats = {
+      total_findings: state.findings.length,
+      by_severity: {CRITICAL:0,HIGH:0,MEDIUM:0,LOW:0},
+      by_service: {}
+    };
+    for (const f of state.findings) {
+      state.stats.by_severity[f.severity] = (state.stats.by_severity[f.severity]||0)+1;
+      state.stats.by_service[f.service] = (state.stats.by_service[f.service]||0)+1;
+    }
+
+    document.getElementById('last-updated').textContent = 'Last scan: ' + (scan.timestamp||'').slice(0,19).replace('T',' ') + ' UTC';
+    renderOverview();
+    renderFindings();
+    renderServiceFilter();
+  } catch(e) { console.error('Load failed:', e); }
+}
+
+async function loadTrends() {
+  try {
+    const res = await fetch('/api/scan-history?days=90');
+    state.history = await res.json();
+    renderTrendChart();
+    renderHistoryTable();
+  } catch(e) { console.error('Trends load failed:', e); }
+}
+
+// ── Overview ──────────────────────────────────────────────────────────────
+function renderOverview() {
+  const s = state.stats;
+  const c = state.compliance;
+  document.getElementById('ov-total').textContent = s.total_findings ?? '—';
+  document.getElementById('ov-critical').textContent = s.by_severity?.CRITICAL ?? '—';
+  document.getElementById('ov-paths').textContent = state.attack_paths?.length ?? '0';
+  document.getElementById('ov-score').textContent = (c.score ?? '—') + '%';
+  document.getElementById('ov-controls').textContent = `${c.controls_passed ?? 0}/${c.controls_total ?? 0} controls`;
+
+  // Charts
+  const sevLabels = ['Critical','High','Medium','Low'];
+  const sevData = [s.by_severity?.CRITICAL||0, s.by_severity?.HIGH||0, s.by_severity?.MEDIUM||0, s.by_severity?.LOW||0];
+  const chartOpts = { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#94a3b8', boxWidth:12 } } } };
+
+  if (sevChart) sevChart.destroy();
+  sevChart = new Chart(document.getElementById('sev-chart'), {
+    type:'doughnut',
+    data:{ labels:sevLabels, datasets:[{ data:sevData, backgroundColor:['#ef4444','#f97316','#eab308','#22c55e'], borderWidth:0 }] },
+    options:{ ...chartOpts, cutout:'60%' }
+  });
+
+  const svcKeys = Object.keys(s.by_service||{});
+  const svcVals = svcKeys.map(k => s.by_service[k]);
+  if (svcChart) svcChart.destroy();
+  svcChart = new Chart(document.getElementById('svc-chart'), {
+    type:'bar',
+    data:{ labels:svcKeys, datasets:[{ label:'Findings', data:svcVals, backgroundColor:'#6366f1', borderRadius:6, borderWidth:0 }] },
+    options:{ ...chartOpts, scales:{ x:{ticks:{color:'#94a3b8'},grid:{color:'#2a2d3e'}}, y:{ticks:{color:'#94a3b8'},grid:{color:'#2a2d3e'}} }, plugins:{ legend:{display:false} } }
+  });
+
+  // Framework score badges
+  const fwEl = document.getElementById('fw-scores');
+  const frameworks = c.frameworks || {};
+  fwEl.innerHTML = Object.entries(frameworks).map(([k, fw]) => `
+    <div style="text-align:center">
+      <div style="font-size:28px;font-weight:800;color:${fw.score>=80?'#22c55e':fw.score>=60?'#eab308':'#ef4444'}">${fw.score}%</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">${fw.framework}</div>
+      <div style="font-size:11px;color:var(--muted)">${fw.controls_passed}/${fw.controls_total} passed</div>
+    </div>
+  `).join('') || '<div style="color:var(--muted)">No compliance data yet.</div>';
+}
+
+// ── Findings table ────────────────────────────────────────────────────────
+const SEV_BADGE = { CRITICAL:'badge-c', HIGH:'badge-h', MEDIUM:'badge-m', LOW:'badge-l' };
+
+function renderFindings() {
+  const sevF = document.getElementById('f-sev').value;
+  const svcF = document.getElementById('f-svc').value;
+  const q = document.getElementById('f-q').value.toLowerCase();
+
+  const filtered = state.findings.filter(f =>
+    (!sevF || f.severity === sevF) &&
+    (!svcF || f.service === svcF) &&
+    (!q || JSON.stringify(f).toLowerCase().includes(q))
+  );
+
+  const tbody = document.getElementById('findings-tbody');
+  if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--low);padding:32px">✅ No findings match current filters</td></tr>'; return; }
+
+  tbody.innerHTML = filtered.map((f, i) => `
+    <tr>
+      <td style="color:var(--muted);font-size:11px">${i+1}</td>
+      <td><b style="color:${riskColor(f.risk_score)}">${f.risk_score?.toFixed(1)??'—'}</b></td>
+      <td><span class="sbadge ${SEV_BADGE[f.severity]||''}">${f.severity}</span></td>
+      <td style="font-size:12px">${f.service||''}</td>
+      <td class="mono">${(f.resource||'').slice(0,40)}</td>
+      <td style="max-width:260px;font-size:13px" title="${f.description||''}">${f.issue||''}</td>
+      <td style="font-family:monospace;font-size:12px;color:var(--accent)">${f.cis_control||''}</td>
+    </tr>
+  `).join('');
+}
+
+function renderServiceFilter() {
+  const svcs = [...new Set(state.findings.map(f => f.service).filter(Boolean))];
+  const el = document.getElementById('f-svc');
+  el.innerHTML = '<option value="">All Services</option>' + svcs.map(s => `<option>${s}</option>`).join('');
+}
+
+function riskColor(score) {
+  if (!score) return 'var(--muted)';
+  if (score >= 8) return 'var(--critical)';
+  if (score >= 6) return 'var(--high)';
+  if (score >= 4) return 'var(--medium)';
+  return 'var(--low)';
+}
+
+function exportFindingsCSV() {
+  const rows = [['Risk','Severity','Service','Resource','Issue','CIS','Remediation']];
+  state.findings.forEach(f => rows.push([f.risk_score??'',f.severity,f.service,f.resource,f.issue,f.cis_control,f.remediation].map(v=>`"${(v??'').toString().replace(/"/g,'""')}"`)));
+  const blob = new Blob([rows.map(r=>r.join(',')).join('\n')], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'findings.csv'; a.click();
+}
+
+// ── Attack graph (D3.js) ──────────────────────────────────────────────────
+function renderAttackGraph() {
+  const data = state.graph_data;
+  const svg = document.getElementById('attack-graph-svg');
+  svg.innerHTML = '';
+  if (!data.nodes?.length) { svg.innerHTML = '<text x="50%" y="50%" fill="#94a3b8" text-anchor="middle" dominant-baseline="middle" font-size="14">No graph data — run a scan first</text>'; return; }
+
+  const W = svg.clientWidth || 900, H = 500;
+  const d3svg = d3.select(svg).attr('viewBox', `0 0 ${W} ${H}`);
+
+  const color = t => ({ S3:'#f59e0b', IAM:'#6366f1', EC2:'#10b981', RDS:'#3b82f6', VPC:'#8b5cf6', CloudTrail:'#06b6d4', EKS:'#ec4899' }[t] || '#94a3b8');
+
+  const sim = d3.forceSimulation(data.nodes)
+    .force('link', d3.forceLink(data.links).id(d => d.id).distance(130))
+    .force('charge', d3.forceManyBody().strength(-350))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(30));
+
+  const linkSel = d3svg.append('g').selectAll('line').data(data.links).join('line')
+    .attr('stroke', d => d.is_attack_path||d.attack_type ? '#ef4444' : '#2a2d3e')
+    .attr('stroke-width', d => d.is_attack_path||d.attack_type ? 2.5 : 1)
+    .attr('stroke-dasharray', d => d.attack_type ? '5,3' : '');
+
+  const drag = d3.drag()
+    .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+    .on('drag', (e, d) => { d.fx=e.x; d.fy=e.y; })
+    .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; });
+
+  const nodeSel = d3svg.append('g').selectAll('circle').data(data.nodes).join('circle')
+    .attr('r', d => d.public_exposure ? 16 : d.sensitive ? 14 : 10)
+    .attr('fill', d => color(d.type))
+    .attr('stroke', d => d.public_exposure ? '#ef4444' : 'transparent')
+    .attr('stroke-width', 2)
+    .call(drag);
+
+  nodeSel.append('title').text(d => `[${d.type}] ${d.id}`);
+
+  const labelSel = d3svg.append('g').selectAll('text').data(data.nodes).join('text')
+    .text(d => (d.label||d.id).slice(0,18))
+    .attr('class', 'node-label').attr('dx', 14).attr('dy', 4);
+
+  sim.on('tick', () => {
+    linkSel.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    nodeSel.attr('cx',d=>d.x).attr('cy',d=>d.y);
+    labelSel.attr('x',d=>d.x).attr('y',d=>d.y);
+  });
+
+  // Attack paths list below graph
+  const container = document.getElementById('attack-paths-list');
+  if (!state.attack_paths?.length) { container.innerHTML=''; return; }
+  container.innerHTML = '<div class="section-title" style="margin-top:0">Detected Attack Paths</div>' +
+    state.attack_paths.slice(0,5).map((p,i) => `
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+          <b>Path ${i+1}: ${(p.entry_point||'').slice(0,30)} → ${(p.target||'').slice(0,30)}</b>
+          <span style="color:${riskColor(p.risk_score)};font-weight:700">Risk ${p.risk_score?.toFixed(1)}</span>
+        </div>
+        ${(p.attack_steps||[]).map(s=>`<div style="font-size:12px;color:var(--muted);margin-bottom:3px">• ${s}</div>`).join('')}
+      </div>
+    `).join('');
+}
+
+// ── Compliance controls ───────────────────────────────────────────────────
+function renderComplianceControls() {
+  const fws = state.compliance?.frameworks || {};
+  for (const [key, fw] of Object.entries(fws)) {
+    const el = document.getElementById('ctrl-' + key);
+    if (!el) continue;
+    const failed = (fw.failed_controls||[]).map(c => `
+      <div class="ctrl-row">
+        <div class="ctrl-id">${c.id}</div>
+        <div class="ctrl-info"><div>${c.title}</div><div class="ctrl-sec">${c.section||''}</div></div>
+        <div><span class="fail-badge">FAIL</span></div>
+      </div>`).join('');
+    const passed = (fw.passed_controls||[]).map(c => `
+      <div class="ctrl-row">
+        <div class="ctrl-id">${c.id}</div>
+        <div class="ctrl-info"><div>${c.title}</div><div class="ctrl-sec">${c.section||''}</div></div>
+        <div><span class="pass-badge">PASS</span></div>
+      </div>`).join('');
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;margin-bottom:12px">Score: <b style="color:${fw.score>=80?'#22c55e':'#ef4444'}">${fw.score}%</b> — ${fw.controls_passed}/${fw.controls_total} controls</div>`
+      + failed + passed;
+  }
+}
+
+// ── Trends ────────────────────────────────────────────────────────────────
+function renderTrendChart() {
+  const h = state.history;
+  if (!h.length) return;
+  const labels = h.map(s => (s.timestamp||'').slice(0,10)).reverse();
+  const cis = h.map(s => s.cis_score).reverse();
+  const nist = h.map(s => s.nist_score).reverse();
+  const pci = h.map(s => s.pci_score).reverse();
+
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(document.getElementById('trend-chart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label:'CIS', data:cis, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,.1)', fill:true, tension:.3 },
+        { label:'NIST', data:nist, borderColor:'#10b981', backgroundColor:'rgba(16,185,129,.1)', fill:true, tension:.3 },
+        { label:'PCI-DSS', data:pci, borderColor:'#f97316', backgroundColor:'rgba(249,115,22,.1)', fill:true, tension:.3 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ticks:{color:'#94a3b8'},grid:{color:'#2a2d3e'}}, y:{ticks:{color:'#94a3b8'},grid:{color:'#2a2d3e'},min:0,max:100} },
+      plugins:{ legend:{ labels:{ color:'#94a3b8' } } }
+    }
+  });
+}
+
+function renderHistoryTable() {
+  const tbody = document.getElementById('history-tbody');
+  if (!state.history.length) { tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No history yet</td></tr>'; return; }
+  tbody.innerHTML = state.history.map(s => `
+    <tr>
+      <td class="mono">${s.scan_id}</td>
+      <td style="font-size:12px">${(s.timestamp||'').slice(0,19).replace('T',' ')}</td>
+      <td class="mono">${s.account_id||'—'}</td>
+      <td>${s.total_findings||0}</td>
+      <td style="color:${s.cis_score>=80?'#22c55e':'#ef4444'}">${s.cis_score??'—'}%</td>
+      <td>${s.nist_score??'—'}%</td>
+      <td>${s.pci_score??'—'}%</td>
+    </tr>`).join('');
+}
+
+// ── Live scan (WebSocket) ─────────────────────────────────────────────────
+const socket = io();
+
+socket.on('connect', () => log('🟢 Connected to scanner'));
+socket.on('scan_progress', d => { log('→ ' + d.message); document.getElementById('scan-progress').style.width = (d.percent||10) + '%'; document.getElementById('scan-status').textContent = d.message; });
+socket.on('scan_complete', d => {
+  log(`✅ Scan complete! ${d.total_findings} findings, CIS score: ${d.cis_score}%, ${d.attack_paths} attack path(s)`);
+  document.getElementById('scan-progress').style.width = '100%';
+  document.getElementById('scan-btn').disabled = false;
+  setTimeout(() => { loadLatest(); }, 800);
+});
+socket.on('scan_error', d => { log('❌ Error: ' + d.message); document.getElementById('scan-btn').disabled = false; });
+
+function log(msg) {
+  const el = document.getElementById('live-log');
+  el.innerHTML += `<div>[${new Date().toTimeString().slice(0,8)}] ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function startScan() {
+  const btn = document.getElementById('scan-btn');
+  btn.disabled = true;
+  document.getElementById('live-log').innerHTML = '';
+  document.getElementById('scan-progress').style.width = '0%';
+  socket.emit('start_scan', {
+    profile: document.getElementById('s-profile').value || null,
+    region: document.getElementById('s-region').value,
+    services: document.getElementById('s-services').value,
+  });
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+loadLatest().then(() => { renderComplianceControls(); });
+</script>
+</body>
+</html>

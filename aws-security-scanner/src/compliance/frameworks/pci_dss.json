@@ -1,0 +1,43 @@
+{
+  "framework": "PCI-DSS",
+  "version": "4.0",
+  "controls": {
+    "1.2.1": { "title": "Network access controls restrict inbound and outbound traffic to only what is necessary", "requirement": "Requirement 1" },
+    "1.3.1": { "title": "Inbound traffic to the CDE is restricted to only that which is necessary", "requirement": "Requirement 1" },
+    "1.3.2": { "title": "Outbound traffic from the CDE is restricted to only that which is necessary", "requirement": "Requirement 1" },
+    "2.2.1": { "title": "Configuration standards are developed and implemented for all system components", "requirement": "Requirement 2" },
+    "3.4.1": { "title": "PAN is masked when displayed", "requirement": "Requirement 3" },
+    "3.5.1": { "title": "Primary Account Number (PAN) is secured with strong cryptography", "requirement": "Requirement 3" },
+    "6.3.3": { "title": "All system components are protected from known vulnerabilities", "requirement": "Requirement 6" },
+    "7.2.1": { "title": "Access to system components and cardholder data is restricted", "requirement": "Requirement 7" },
+    "7.2.2": { "title": "Access is assigned to users based on job classification and function", "requirement": "Requirement 7" },
+    "8.2.1": { "title": "All user IDs and authentication factors are managed for non-consumer users and administrators", "requirement": "Requirement 8" },
+    "8.3.6": { "title": "Passwords/passphrases for user accounts meet minimum length", "requirement": "Requirement 8" },
+    "8.4.2": { "title": "MFA is implemented for all access into the CDE", "requirement": "Requirement 8" },
+    "10.2.1": { "title": "Audit logs capture all individual user access to cardholder data", "requirement": "Requirement 10" },
+    "10.3.2": { "title": "Audit log files are protected to prevent modifications", "requirement": "Requirement 10" },
+    "10.3.3": { "title": "Audit log files are promptly backed up to a centralized log server", "requirement": "Requirement 10" },
+    "11.3.1": { "title": "Internal vulnerability scans are performed", "requirement": "Requirement 11" },
+    "11.4.1": { "title": "A penetration testing methodology is defined and implemented", "requirement": "Requirement 11" }
+  },
+  "cis_to_pci": {
+    "1.4":  ["8.2.1"],
+    "1.5":  ["8.4.2"],
+    "1.8":  ["8.3.6"],
+    "1.10": ["8.4.2"],
+    "1.12": ["8.2.1"],
+    "1.14": ["8.2.1"],
+    "1.16": ["7.2.1", "7.2.2"],
+    "2.1.1": ["3.5.1"],
+    "2.1.5": ["1.3.1"],
+    "2.3.1": ["3.5.1"],
+    "2.3.2": ["1.3.1"],
+    "3.1":  ["10.2.1"],
+    "3.2":  ["10.3.2"],
+    "3.7":  ["10.3.3"],
+    "3.9":  ["10.2.1"],
+    "5.2":  ["1.2.1", "1.3.1"],
+    "5.3":  ["1.2.1", "1.3.1"],
+    "5.4":  ["1.2.1"]
+  }
+}

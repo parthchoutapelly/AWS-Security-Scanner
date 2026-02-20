@@ -1,0 +1,28 @@
+# AWS Security Posture Scanner — sample configuration
+#
+# Usage: python -m src.cli scan --config examples/sample_config.yaml --profile production
+
+default:
+  profile: null           # use default AWS credential chain
+  region: us-east-1
+  services: all           # or: s3,iam,ec2,rds,vpc,cloudtrail
+  output: report.html
+  format: html            # html | json | csv
+  min_severity: LOW
+
+production:
+  profile: prod-readonly
+  region: us-east-1
+  services: all
+  output: prod-report.html
+  format: html
+  role_arn: arn:aws:iam::ACCOUNT_ID:role/SecurityScannerRole
+  min_severity: MEDIUM
+
+ci:
+  profile: null
+  region: us-east-1
+  services: s3,iam,ec2
+  output: ci-findings.json
+  format: json
+  min_severity: HIGH

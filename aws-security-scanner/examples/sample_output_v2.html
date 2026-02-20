@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AWS Security Posture Report — 123456789012</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2d3e;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #6366f1;
+      --critical: #ef4444;
+      --high: #f97316;
+      --medium: #eab308;
+      --low: #22c55e;
+      --pass: #22c55e;
+      --fail: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.6; }
+    a { color: var(--accent); text-decoration: none; }
+
+    /* Layout */
+    .container { max-width: 1300px; margin: 0 auto; padding: 24px; }
+    .header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; background: var(--card); border-bottom: 1px solid var(--border); margin-bottom: 24px; border-radius: 12px; }
+    .header h1 { font-size: 22px; font-weight: 700; }
+    .header .meta { color: var(--muted); font-size: 12px; text-align: right; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+
+    /* Cards */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .card h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+    .stat-value { font-size: 36px; font-weight: 800; line-height: 1; }
+    .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    /* Severity colors */
+    .critical { color: var(--critical); }
+    .high { color: var(--high); }
+    .medium { color: var(--medium); }
+    .low { color: var(--low); }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+    .badge-critical { background: rgba(239,68,68,.15); color: var(--critical); }
+    .badge-high { background: rgba(249,115,22,.15); color: var(--high); }
+    .badge-medium { background: rgba(234,179,8,.15); color: var(--medium); }
+    .badge-low { background: rgba(34,197,94,.15); color: var(--low); }
+    .badge-pass { background: rgba(34,197,94,.15); color: var(--pass); }
+    .badge-fail { background: rgba(239,68,68,.15); color: var(--fail); }
+
+    /* Score gauge */
+    .score-wrap { display: flex; align-items: center; gap: 20px; }
+    .score-number { font-size: 56px; font-weight: 900; line-height: 1; }
+    .score-detail { font-size: 12px; color: var(--muted); }
+    .score-detail span { display: block; margin-top: 4px; }
+    .score-good { color: var(--low); }
+    .score-ok { color: var(--medium); }
+    .score-bad { color: var(--critical); }
+
+    /* Progress bar */
+    .progress { background: var(--border); border-radius: 99px; height: 8px; overflow: hidden; margin-top: 12px; }
+    .progress-fill { height: 100%; border-radius: 99px; transition: width .6s ease; }
+    .fill-good { background: var(--low); }
+    .fill-ok { background: var(--medium); }
+    .fill-bad { background: var(--critical); }
+
+    /* Charts */
+    .chart-container { position: relative; height: 220px; }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 24px; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { background: var(--card); padding: 12px 16px; text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .15s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,.03); }
+    tbody td { padding: 12px 16px; font-size: 13px; vertical-align: top; }
+    .resource-cell { font-family: monospace; font-size: 12px; color: var(--muted); max-width: 200px; word-break: break-all; }
+    .issue-cell { max-width: 280px; }
+    .remediation-cell { max-width: 240px; color: var(--muted); font-size: 12px; }
+
+    /* Expandable row */
+    details summary { cursor: pointer; list-style: none; }
+    details summary::marker { display: none; }
+    details summary::-webkit-details-marker { display: none; }
+    .cli-code { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-family: monospace; font-size: 12px; color: #7dd3fc; margin-top: 8px; white-space: pre-wrap; word-break: break-all; }
+
+    /* Filters */
+    .filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+    .filters label { font-size: 12px; color: var(--muted); }
+    select, input[type="search"] { background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 6px 12px; font-size: 13px; outline: none; }
+    select:focus, input:focus { border-color: var(--accent); }
+    .btn { display: inline-flex; align-items: center; gap: 6px; background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn:hover { opacity: .85; }
+
+    /* Compliance table */
+    .compliance-section { margin-bottom: 24px; }
+    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .control-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .control-row:last-child { border-bottom: none; }
+    .control-id { font-family: monospace; font-size: 12px; min-width: 60px; color: var(--muted); padding-top: 2px; }
+    .control-info { flex: 1; }
+    .control-title { font-size: 13px; }
+    .control-section { font-size: 11px; color: var(--muted); }
+    .control-findings { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+    .finding-ref { font-size: 11px; background: rgba(239,68,68,.1); color: var(--critical); border-radius: 4px; padding: 1px 6px; font-family: monospace; }
+
+    footer { text-align: center; color: var(--muted); font-size: 12px; padding: 24px 0; border-top: 1px solid var(--border); margin-top: 24px; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <h1>🔒 AWS Security Posture Report</h1>
+      <div style="color:var(--muted);font-size:12px;margin-top:4px;">CIS AWS Foundations Benchmark v1.5.0</div>
+    </div>
+    <div class="meta">
+      <div>Account: <strong>123456789012</strong></div>
+      <div>Region: us-east-1</div>
+      <div>Scanned: 2026-02-20 10:30:00 UTC</div>
+      
+      <div>Duration: 52.3s</div>
+      
+    </div>
+  </div>
+
+  <!-- KPI row -->
+  
+  
+  
+  
+  
+
+  <div class="grid-4">
+    <div class="card">
+      <h2>Total Findings</h2>
+      <div class="stat-value">13</div>
+      <div class="stat-label">across 8 services</div>
+    </div>
+    <div class="card">
+      <h2>Critical / High</h2>
+      <div class="stat-value critical">5</div>
+      <div class="stat-label">
+        + <span class="high">6</span> High
+      </div>
+    </div>
+    <div class="card">
+      <h2>Medium / Low</h2>
+      <div class="stat-value medium">2</div>
+      <div class="stat-label">
+        + <span class="low">0</span> Low
+      </div>
+    </div>
+    <div class="card">
+      <h2>CIS Compliance</h2>
+      <div class="score-wrap">
+        <div class="stat-value score-bad">53.6%</div>
+        <div class="score-detail">
+          <span>15 / 28 controls</span>
+          <span style="color:var(--critical)">13 failed</span>
+        </div>
+      </div>
+      <div class="progress">
+        <div class="progress-fill fill-bad" style="width:53.6%"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div class="grid-2">
+    <div class="card">
+      <h2>Findings by Severity</h2>
+      <div class="chart-container">
+        <canvas id="severityChart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Findings by Service</h2>
+      <div class="chart-container">
+        <canvas id="serviceChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Findings table -->
+  <div class="section-title">All Findings (13)</div>
+
+  <div class="filters">
+    <label>Severity:</label>
+    <select id="sev-filter" onchange="filterTable()">
+      <option value="">All</option>
+      <option value="CRITICAL">Critical</option>
+      <option value="HIGH">High</option>
+      <option value="MEDIUM">Medium</option>
+      <option value="LOW">Low</option>
+    </select>
+    <label>Service:</label>
+    <select id="svc-filter" onchange="filterTable()">
+      <option value="">All</option>
+      
+      <option value="S3">S3</option>
+      
+      <option value="RDS">RDS</option>
+      
+      <option value="IAM">IAM</option>
+      
+      <option value="EKS">EKS</option>
+      
+      <option value="SecretsManager">SecretsManager</option>
+      
+      <option value="EC2">EC2</option>
+      
+      <option value="CloudTrail">CloudTrail</option>
+      
+      <option value="VPC">VPC</option>
+      
+    </select>
+    <input type="search" id="search-box" placeholder="Search…" oninput="filterTable()" />
+    <button class="btn" onclick="exportCSV()">⬇ Export CSV</button>
+  </div>
+
+  <div class="table-wrap">
+    <table id="findings-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Risk ▾</th>
+          <th>Severity</th>
+          <th>Service</th>
+          <th>Resource</th>
+          <th>Issue</th>
+          <th>CIS Control</th>
+          <th>Remediation</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+        
+        
+        <tr data-severity="CRITICAL" data-service="S3">
+          <td style="color:var(--muted);font-size:11px">1</td>
+          <td><b style="font-size:14px;color:var(--high)">7.8</b></td>
+          <td><span class="badge badge-critical">CRITICAL</span></td>
+          <td><span style="font-size:12px">S3</span></td>
+          <td class="resource-cell">my-prod-data-bucket</td>
+          <td class="issue-cell">
+            <details>
+              <summary>Bucket ACL grants READ to AllUsers</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">Bucket my-prod-data-bucket has a public-read ACL.</div>
+              
+              <div class="cli-code">aws s3api put-bucket-acl --bucket my-prod-data-bucket --acl private</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">2.1.5</td>
+          <td class="remediation-cell">Remove public ACL.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="CRITICAL" data-service="RDS">
+          <td style="color:var(--muted);font-size:11px">2</td>
+          <td><b style="font-size:14px;color:var(--high)">7.8</b></td>
+          <td><span class="badge badge-critical">CRITICAL</span></td>
+          <td><span style="font-size:12px">RDS</span></td>
+          <td class="resource-cell">rds:prod-mysql</td>
+          <td class="issue-cell">
+            <details>
+              <summary>RDS instance prod-mysql is publicly accessible</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">prod-mysql is public.</div>
+              
+              <div class="cli-code">aws rds modify-db-instance ...</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">2.3.2</td>
+          <td class="remediation-cell">Disable public access.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="HIGH" data-service="IAM">
+          <td style="color:var(--muted);font-size:11px">3</td>
+          <td><b style="font-size:14px;color:var(--high)">7.6</b></td>
+          <td><span class="badge badge-high">HIGH</span></td>
+          <td><span style="font-size:12px">IAM</span></td>
+          <td class="resource-cell">iam:user:admin-bob</td>
+          <td class="issue-cell">
+            <details>
+              <summary>IAM user has overly permissive policy: AdministratorAccess</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">admin-bob has AdministratorAccess.</div>
+              
+              <div class="cli-code">aws iam detach-user-policy ...</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">1.16</td>
+          <td class="remediation-cell">Remove admin policy.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="HIGH" data-service="S3">
+          <td style="color:var(--muted);font-size:11px">4</td>
+          <td><b style="font-size:14px;color:var(--high)">6.6</b></td>
+          <td><span class="badge badge-high">HIGH</span></td>
+          <td><span style="font-size:12px">S3</span></td>
+          <td class="resource-cell">prod-backups</td>
+          <td class="issue-cell">
+            <details>
+              <summary>S3 bucket default encryption not enabled</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">Bucket prod-backups has no server-side encryption.</div>
+              
+              <div class="cli-code">aws s3api put-bucket-encryption ...</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">2.1.1</td>
+          <td class="remediation-cell">Enable SSE.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="HIGH" data-service="IAM">
+          <td style="color:var(--muted);font-size:11px">5</td>
+          <td><b style="font-size:14px;color:var(--high)">6.6</b></td>
+          <td><span class="badge badge-high">HIGH</span></td>
+          <td><span style="font-size:12px">IAM</span></td>
+          <td class="resource-cell">iam:user:alice</td>
+          <td class="issue-cell">
+            <details>
+              <summary>IAM user has console access without MFA</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">User alice has no MFA.</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">1.10</td>
+          <td class="remediation-cell">Enable MFA.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="HIGH" data-service="EKS">
+          <td style="color:var(--muted);font-size:11px">6</td>
+          <td><b style="font-size:14px;color:var(--high)">6.6</b></td>
+          <td><span class="badge badge-high">HIGH</span></td>
+          <td><span style="font-size:12px">EKS</span></td>
+          <td class="resource-cell">eks:prod-cluster</td>
+          <td class="issue-cell">
+            <details>
+              <summary>EKS cluster prod-cluster API endpoint is publicly accessible from 0.0.0.0/0</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">EKS public endpoint.</div>
+              
+              <div class="cli-code">aws eks update-cluster-config ...</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">5.4</td>
+          <td class="remediation-cell">Restrict endpoint.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="HIGH" data-service="SecretsManager">
+          <td style="color:var(--muted);font-size:11px">7</td>
+          <td><b style="font-size:14px;color:var(--high)">6.6</b></td>
+          <td><span class="badge badge-high">HIGH</span></td>
+          <td><span style="font-size:12px">SecretsManager</span></td>
+          <td class="resource-cell">secret:prod/db-password</td>
+          <td class="issue-cell">
+            <details>
+              <summary>Secret prod/db-password does not have automatic rotation enabled</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">No rotation configured.</div>
+              
+              <div class="cli-code">aws secretsmanager rotate-secret ...</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">1.14</td>
+          <td class="remediation-cell">Enable rotation.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="CRITICAL" data-service="IAM">
+          <td style="color:var(--muted);font-size:11px">8</td>
+          <td><b style="font-size:14px;color:var(--high)">6.5</b></td>
+          <td><span class="badge badge-critical">CRITICAL</span></td>
+          <td><span style="font-size:12px">IAM</span></td>
+          <td class="resource-cell">root</td>
+          <td class="issue-cell">
+            <details>
+              <summary>MFA not enabled on root account</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">Root account has no MFA.</div>
+              
+              <div class="cli-code"># Enable via console</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">1.5</td>
+          <td class="remediation-cell">Enable MFA.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="CRITICAL" data-service="IAM">
+          <td style="color:var(--muted);font-size:11px">9</td>
+          <td><b style="font-size:14px;color:var(--high)">6.5</b></td>
+          <td><span class="badge badge-critical">CRITICAL</span></td>
+          <td><span style="font-size:12px">IAM</span></td>
+          <td class="resource-cell">root</td>
+          <td class="issue-cell">
+            <details>
+              <summary>Root account has active access keys</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">Root access keys exist.</div>
+              
+              <div class="cli-code"># Delete via console</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">1.4</td>
+          <td class="remediation-cell">Delete root access keys.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="CRITICAL" data-service="EC2">
+          <td style="color:var(--muted);font-size:11px">10</td>
+          <td><b style="font-size:14px;color:var(--high)">6.5</b></td>
+          <td><span class="badge badge-critical">CRITICAL</span></td>
+          <td><span style="font-size:12px">EC2</span></td>
+          <td class="resource-cell">sg-0a1b2c (web-servers)</td>
+          <td class="issue-cell">
+            <details>
+              <summary>Security group allows SSH (port 22) from the internet</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">SSH open to 0.0.0.0/0.</div>
+              
+              <div class="cli-code">aws ec2 revoke-security-group-ingress ...</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">5.2</td>
+          <td class="remediation-cell">Restrict SSH.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="HIGH" data-service="CloudTrail">
+          <td style="color:var(--muted);font-size:11px">11</td>
+          <td><b style="font-size:14px;color:var(--medium)">5.3</b></td>
+          <td><span class="badge badge-high">HIGH</span></td>
+          <td><span style="font-size:12px">CloudTrail</span></td>
+          <td class="resource-cell">cloudtrail</td>
+          <td class="issue-cell">
+            <details>
+              <summary>No multi-region CloudTrail trail configured</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">No multi-region trail.</div>
+              
+              <div class="cli-code">aws cloudtrail update-trail ...</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">3.3</td>
+          <td class="remediation-cell">Enable multi-region.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="MEDIUM" data-service="S3">
+          <td style="color:var(--muted);font-size:11px">12</td>
+          <td><b style="font-size:14px;color:var(--medium)">4.8</b></td>
+          <td><span class="badge badge-medium">MEDIUM</span></td>
+          <td><span style="font-size:12px">S3</span></td>
+          <td class="resource-cell">prod-backups</td>
+          <td class="issue-cell">
+            <details>
+              <summary>S3 bucket versioning not enabled</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">No versioning on prod-backups.</div>
+              
+              <div class="cli-code">aws s3api put-bucket-versioning ...</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">2.1.3</td>
+          <td class="remediation-cell">Enable versioning.</td>
+        </tr>
+        
+        
+        
+        <tr data-severity="MEDIUM" data-service="VPC">
+          <td style="color:var(--muted);font-size:11px">13</td>
+          <td><b style="font-size:14px;color:var(--low)">3.6</b></td>
+          <td><span class="badge badge-medium">MEDIUM</span></td>
+          <td><span style="font-size:12px">VPC</span></td>
+          <td class="resource-cell">vpc-0123456789abcdef0</td>
+          <td class="issue-cell">
+            <details>
+              <summary>VPC flow logs not enabled</summary>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted)">No flow logs.</div>
+              
+              <div class="cli-code">aws ec2 create-flow-logs ...</div>
+              
+            </details>
+          </td>
+          <td style="font-family:monospace;font-size:12px;color:var(--accent)">3.9</td>
+          <td class="remediation-cell">Enable flow logs.</td>
+        </tr>
+        
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Multi-framework scores -->
+  
+  
+  <div class="section-title">Compliance Framework Scores</div>
+  <div class="grid-3" style="grid-template-columns: repeat(3, 1fr); margin-bottom:24px">
+    
+    
+    
+    <div class="card">
+      <h2>CIS AWS Foundations Benchmark v1.5.0</h2>
+      <div class="score-wrap">
+        <div class="stat-value score-bad">53.6%</div>
+        <div class="score-detail">
+          <span>15 / 28</span>
+          <span style="color:var(--critical)">13 failed</span>
+        </div>
+      </div>
+      <div class="progress"><div class="progress-fill fill-bad" style="width:53.6%"></div></div>
+    </div>
+    
+    
+    
+    <div class="card">
+      <h2>NIST Cybersecurity Framework v1.1</h2>
+      <div class="score-wrap">
+        <div class="stat-value score-ok">61.1%</div>
+        <div class="score-detail">
+          <span>11 / 18</span>
+          <span style="color:var(--critical)">7 failed</span>
+        </div>
+      </div>
+      <div class="progress"><div class="progress-fill fill-ok" style="width:61.1%"></div></div>
+    </div>
+    
+    
+    
+    <div class="card">
+      <h2>PCI-DSS v4.0</h2>
+      <div class="score-wrap">
+        <div class="stat-value score-bad">52.9%</div>
+        <div class="score-detail">
+          <span>9 / 17</span>
+          <span style="color:var(--critical)">8 failed</span>
+        </div>
+      </div>
+      <div class="progress"><div class="progress-fill fill-bad" style="width:52.9%"></div></div>
+    </div>
+    
+  </div>
+  
+
+  <!-- Attack graph -->
+  
+  <div class="section-title">Infrastructure Attack Graph</div>
+  <div class="card" style="margin-bottom:24px">
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;font-size:12px;flex-wrap:wrap">
+      <span style="width:12px;height:12px;border-radius:50%;background:#f59e0b;display:inline-block"></span> S3
+      <span style="width:12px;height:12px;border-radius:50%;background:#6366f1;display:inline-block"></span> IAM
+      <span style="width:12px;height:12px;border-radius:50%;background:#10b981;display:inline-block"></span> EC2
+      <span style="width:12px;height:12px;border-radius:50%;background:#3b82f6;display:inline-block"></span> RDS
+      <span style="width:24px;height:3px;background:#ef4444;display:inline-block;border-radius:2px"></span> Attack path
+      <span style="width:24px;height:1px;background:#94a3b8;display:inline-block"></span> Relationship
+      <span style="margin-left:auto;color:var(--muted)">
+        11 nodes · 12 edges · 4 attack path(s)
+      </span>
+    </div>
+    <svg id="attack-graph-svg" style="width:100%;height:500px;background:#0d1117;border-radius:8px;border:1px solid var(--border)"></svg>
+    
+    <div style="margin-top:16px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--critical)">⚠ 4 Exploitable Attack Chain(s) Detected</div>
+      
+      <div style="background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <b style="font-size:13px">Path 1: my-prod-data-bucket → sg-0a1b2c (web-servers)</b>
+          <span style="font-weight:700;color:var(--critical)">Risk 9.6</span>
+        </div>
+        
+        <div style="font-size:12px;color:var(--muted);margin-bottom:2px">• Step 1: Public S3 bucket may expose credentials / sensitive data to attackers (my-prod-data-bucket → iam:user:admin-bob)</div>
+        
+        <div style="font-size:12px;color:var(--muted);margin-bottom:2px">• Step 2: Over-privileged IAM role/user can control all EC2 instances (iam:user:admin-bob → sg-0a1b2c (web-servers))</div>
+        
+      </div>
+      
+      <div style="background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <b style="font-size:13px">Path 2: root → sg-0a1b2c (web-servers)</b>
+          <span style="font-weight:700;color:var(--critical)">Risk 9.6</span>
+        </div>
+        
+        <div style="font-size:12px;color:var(--muted);margin-bottom:2px">• Step 1: Credential without MFA can be taken over via phishing/credential stuffing (root → iam:user:admin-bob)</div>
+        
+        <div style="font-size:12px;color:var(--muted);margin-bottom:2px">• Step 2: Over-privileged IAM role/user can control all EC2 instances (iam:user:admin-bob → sg-0a1b2c (web-servers))</div>
+        
+      </div>
+      
+      <div style="background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <b style="font-size:13px">Path 3: my-prod-data-bucket → iam:user:admin-bob</b>
+          <span style="font-weight:700;color:var(--critical)">Risk 8.9</span>
+        </div>
+        
+        <div style="font-size:12px;color:var(--muted);margin-bottom:2px">• Step 1: Public S3 bucket may expose credentials / sensitive data to attackers (my-prod-data-bucket → iam:user:admin-bob)</div>
+        
+      </div>
+      
+      <div style="background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <b style="font-size:13px">Path 4: root → iam:user:admin-bob</b>
+          <span style="font-weight:700;color:var(--critical)">Risk 8.9</span>
+        </div>
+        
+        <div style="font-size:12px;color:var(--muted);margin-bottom:2px">• Step 1: Credential without MFA can be taken over via phishing/credential stuffing (root → iam:user:admin-bob)</div>
+        
+      </div>
+      
+    </div>
+    
+  </div>
+  
+
+  <!-- CIS Compliance breakdown -->
+  <div class="compliance-section">
+    <div class="section-title">CIS Benchmark — Failed Controls (13)</div>
+    <div class="card">
+      
+      <div class="control-row">
+        <div class="control-id">1.10</div>
+        <div class="control-info">
+          <div class="control-title">Ensure IAM password policy requires at least one lowercase letter</div>
+          <div class="control-section">Identity and Access Management</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">1.14</div>
+        <div class="control-info">
+          <div class="control-title">Ensure access keys are rotated every 90 days or less</div>
+          <div class="control-section">Identity and Access Management</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">1.16</div>
+        <div class="control-info">
+          <div class="control-title">Ensure IAM policies that allow full administrative privileges are not attached</div>
+          <div class="control-section">Identity and Access Management</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">1.4</div>
+        <div class="control-info">
+          <div class="control-title">Ensure no &#39;root&#39; user account access key exists</div>
+          <div class="control-section">Identity and Access Management</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">1.5</div>
+        <div class="control-info">
+          <div class="control-title">Ensure MFA is enabled for the &#39;root&#39; user account</div>
+          <div class="control-section">Identity and Access Management</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">2.1.1</div>
+        <div class="control-info">
+          <div class="control-title">Ensure S3 Bucket Policy is set to deny HTTP requests</div>
+          <div class="control-section">Storage</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">2.1.3</div>
+        <div class="control-info">
+          <div class="control-title">Ensure the S3 bucket used to store CloudTrail logs is not publicly accessible</div>
+          <div class="control-section">Storage</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">2.1.5</div>
+        <div class="control-info">
+          <div class="control-title">Ensure that S3 Buckets are configured with &#39;Block public access&#39;</div>
+          <div class="control-section">Storage</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">2.3.2</div>
+        <div class="control-info">
+          <div class="control-title">Ensure that public access is not given to RDS instance</div>
+          <div class="control-section">Database Services</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">3.3</div>
+        <div class="control-info">
+          <div class="control-title">Ensure the S3 bucket used to store CloudTrail logs is not publicly accessible</div>
+          <div class="control-section">Logging</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">3.9</div>
+        <div class="control-info">
+          <div class="control-title">Ensure VPC flow logging is enabled in all VPCs</div>
+          <div class="control-section">Logging</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">5.2</div>
+        <div class="control-info">
+          <div class="control-title">Ensure no security groups allow ingress from 0.0.0.0/0 to port 22</div>
+          <div class="control-section">Networking</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">5.4</div>
+        <div class="control-info">
+          <div class="control-title">Ensure the default security group of every VPC restricts all traffic</div>
+          <div class="control-section">Networking</div>
+          <div class="control-findings">
+            
+          </div>
+        </div>
+        <div><span class="badge badge-fail">FAIL</span></div>
+      </div>
+      
+    </div>
+  </div>
+
+  <div class="compliance-section">
+    <div class="section-title">CIS Benchmark — Passed Controls (15)</div>
+    <div class="card">
+      
+      <div class="control-row">
+        <div class="control-id">1.11</div>
+        <div class="control-info">
+          <div class="control-title">Ensure IAM password policy requires at least one number and symbol</div>
+          <div class="control-section">Identity and Access Management</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">1.12</div>
+        <div class="control-info">
+          <div class="control-title">Ensure credentials unused for 90 days or greater are disabled</div>
+          <div class="control-section">Identity and Access Management</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">1.13</div>
+        <div class="control-info">
+          <div class="control-title">Ensure there is only one active access key available for any single IAM user</div>
+          <div class="control-section">Identity and Access Management</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">1.8</div>
+        <div class="control-info">
+          <div class="control-title">Ensure IAM password policy requires minimum length of 14 or greater</div>
+          <div class="control-section">Identity and Access Management</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">1.9</div>
+        <div class="control-info">
+          <div class="control-title">Ensure IAM password policy requires at least one uppercase letter</div>
+          <div class="control-section">Identity and Access Management</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">2.1.2</div>
+        <div class="control-info">
+          <div class="control-title">Ensure S3 bucket access logging is enabled on the CloudTrail S3 bucket</div>
+          <div class="control-section">Storage</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">2.3.1</div>
+        <div class="control-info">
+          <div class="control-title">Ensure that encryption is enabled for RDS instances</div>
+          <div class="control-section">Database Services</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">2.3.3</div>
+        <div class="control-info">
+          <div class="control-title">Ensure that RDS clusters and instances have deletion protection enabled</div>
+          <div class="control-section">Database Services</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">2.3.4</div>
+        <div class="control-info">
+          <div class="control-title">Ensure that RDS automated backups are enabled</div>
+          <div class="control-section">Database Services</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">2.3.5</div>
+        <div class="control-info">
+          <div class="control-title">Ensure that RDS instances use Multi-AZ</div>
+          <div class="control-section">Database Services</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">3.1</div>
+        <div class="control-info">
+          <div class="control-title">Ensure CloudTrail is enabled in all regions</div>
+          <div class="control-section">Logging</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">3.2</div>
+        <div class="control-info">
+          <div class="control-title">Ensure CloudTrail log file validation is enabled</div>
+          <div class="control-section">Logging</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">3.7</div>
+        <div class="control-info">
+          <div class="control-title">Ensure CloudTrail logs are encrypted at rest using KMS CMKs</div>
+          <div class="control-section">Logging</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">5.1</div>
+        <div class="control-info">
+          <div class="control-title">Ensure no Network ACLs allow ingress from 0.0.0.0/0 to remote server administration ports</div>
+          <div class="control-section">Networking</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+      <div class="control-row">
+        <div class="control-id">5.3</div>
+        <div class="control-info">
+          <div class="control-title">Ensure no security groups allow ingress from 0.0.0.0/0 to port 3389</div>
+          <div class="control-section">Networking</div>
+        </div>
+        <div><span class="badge badge-pass">PASS</span></div>
+      </div>
+      
+    </div>
+  </div>
+
+  <footer>
+    Generated by AWS Security Posture Scanner •
+    2026-02-20 •
+    Account 123456789012
+  </footer>
+</div>
+
+<script>
+// ── Chart data ────────────────────────────────────────────────────────────
+const sevData = {
+  labels: ['Critical', 'High', 'Medium', 'Low'],
+  datasets: [{
+    data: [
+      5,
+      6,
+      2,
+      0
+    ],
+    backgroundColor: ['#ef4444','#f97316','#eab308','#22c55e'],
+    borderWidth: 0,
+  }]
+};
+
+const svcLabels = ['S3','RDS','IAM','EKS','SecretsManager','EC2','CloudTrail','VPC',];
+const svcValues = [3,1,4,1,1,1,1,1,];
+
+const chartDefaults = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 12 } } },
+};
+
+new Chart(document.getElementById('severityChart'), {
+  type: 'doughnut',
+  data: sevData,
+  options: { ...chartDefaults, cutout: '60%' }
+});
+
+new Chart(document.getElementById('serviceChart'), {
+  type: 'bar',
+  data: {
+    labels: svcLabels,
+    datasets: [{
+      label: 'Findings',
+      data: svcValues,
+      backgroundColor: '#6366f1',
+      borderRadius: 6,
+      borderWidth: 0,
+    }]
+  },
+  options: {
+    ...chartDefaults,
+    scales: {
+      x: { ticks: { color: '#94a3b8' }, grid: { color: '#2a2d3e' } },
+      y: { ticks: { color: '#94a3b8' }, grid: { color: '#2a2d3e' } }
+    },
+    plugins: { legend: { display: false } }
+  }
+});
+
+// ── Filtering ─────────────────────────────────────────────────────────────
+function filterTable() {
+  const sev = document.getElementById('sev-filter').value.toLowerCase();
+  const svc = document.getElementById('svc-filter').value.toLowerCase();
+  const q = document.getElementById('search-box').value.toLowerCase();
+  document.querySelectorAll('#findings-table tbody tr').forEach(row => {
+    const rowSev = (row.dataset.severity || '').toLowerCase();
+    const rowSvc = (row.dataset.service || '').toLowerCase();
+    const text = row.textContent.toLowerCase();
+    const show = (!sev || rowSev === sev) && (!svc || rowSvc === svc) && (!q || text.includes(q));
+    row.style.display = show ? '' : 'none';
+  });
+}
+
+// ── D3.js Attack Graph ────────────────────────────────────────────────────
+(function() {
+  const graphData = {"attack_paths": [{"attack_steps": ["Step 1: Public S3 bucket may expose credentials / sensitive data to attackers (my-prod-data-bucket \u2192 iam:user:admin-bob)", "Step 2: Over-privileged IAM role/user can control all EC2 instances (iam:user:admin-bob \u2192 sg-0a1b2c (web-servers))"], "attack_types": ["credential_exposure", "privilege_escalation"], "entry_point": "my-prod-data-bucket", "id": "path-002", "length": 3, "path": ["my-prod-data-bucket", "iam:user:admin-bob", "sg-0a1b2c (web-servers)"], "risk_score": 9.6, "target": "sg-0a1b2c (web-servers)"}, {"attack_steps": ["Step 1: Credential without MFA can be taken over via phishing/credential stuffing (root \u2192 iam:user:admin-bob)", "Step 2: Over-privileged IAM role/user can control all EC2 instances (iam:user:admin-bob \u2192 sg-0a1b2c (web-servers))"], "attack_types": ["account_takeover", "privilege_escalation"], "entry_point": "root", "id": "path-004", "length": 3, "path": ["root", "iam:user:admin-bob", "sg-0a1b2c (web-servers)"], "risk_score": 9.6, "target": "sg-0a1b2c (web-servers)"}, {"attack_steps": ["Step 1: Public S3 bucket may expose credentials / sensitive data to attackers (my-prod-data-bucket \u2192 iam:user:admin-bob)"], "attack_types": ["credential_exposure"], "entry_point": "my-prod-data-bucket", "id": "path-001", "length": 2, "path": ["my-prod-data-bucket", "iam:user:admin-bob"], "risk_score": 8.9, "target": "iam:user:admin-bob"}, {"attack_steps": ["Step 1: Credential without MFA can be taken over via phishing/credential stuffing (root \u2192 iam:user:admin-bob)"], "attack_types": ["account_takeover"], "entry_point": "root", "id": "path-003", "length": 2, "path": ["root", "iam:user:admin-bob"], "risk_score": 8.9, "target": "iam:user:admin-bob"}], "links": [{"attack_type": "credential_exposure", "description": "Public S3 bucket may expose credentials / sensitive data to attackers", "is_attack_path": true, "severity": "CRITICAL", "source": "my-prod-data-bucket", "target": "iam:user:admin-bob"}, {"attack_type": "privilege_escalation", "description": "Over-privileged IAM role/user can control all EC2 instances", "is_attack_path": true, "severity": "HIGH", "source": "iam:user:admin-bob", "target": "sg-0a1b2c (web-servers)"}, {"attack_type": "credential_exposure", "description": "Public S3 bucket may expose credentials / sensitive data to attackers", "is_attack_path": false, "severity": "CRITICAL", "source": "rds:prod-mysql", "target": "iam:user:admin-bob"}, {"attack_type": "account_takeover", "description": "Credential without MFA can be taken over via phishing/credential stuffing", "is_attack_path": true, "severity": "CRITICAL", "source": "root", "target": "iam:user:admin-bob"}, {"attack_type": "detection_evasion", "description": "No audit trail \u2014 attacker activity goes undetected", "is_attack_path": false, "severity": "HIGH", "source": "cloudtrail", "target": "my-prod-data-bucket"}, {"attack_type": "detection_evasion", "description": "No audit trail \u2014 attacker activity goes undetected", "is_attack_path": false, "severity": "HIGH", "source": "cloudtrail", "target": "iam:user:admin-bob"}, {"attack_type": "detection_evasion", "description": "No audit trail \u2014 attacker activity goes undetected", "is_attack_path": false, "severity": "HIGH", "source": "cloudtrail", "target": "rds:prod-mysql"}, {"attack_type": "detection_evasion", "description": "No audit trail \u2014 attacker activity goes undetected", "is_attack_path": false, "severity": "HIGH", "source": "cloudtrail", "target": "sg-0a1b2c (web-servers)"}, {"attack_type": "detection_evasion", "description": "No audit trail \u2014 attacker activity goes undetected", "is_attack_path": false, "severity": "HIGH", "source": "cloudtrail", "target": "prod-backups"}, {"attack_type": "detection_evasion", "description": "No audit trail \u2014 attacker activity goes undetected", "is_attack_path": false, "severity": "HIGH", "source": "cloudtrail", "target": "root"}, {"attack_type": "detection_evasion", "description": "No audit trail \u2014 attacker activity goes undetected", "is_attack_path": false, "severity": "HIGH", "source": "cloudtrail", "target": "iam:user:alice"}, {"attack_type": "credential_exposure", "description": "Public S3 bucket may expose credentials / sensitive data to attackers", "is_attack_path": false, "severity": "HIGH", "source": "eks:prod-cluster", "target": "iam:user:admin-bob"}], "nodes": [{"account": "123456789012", "id": "my-prod-data-bucket", "label": "my-prod-data-bucket", "public_exposure": true, "region": "us-east-1", "sensitive": false, "type": "S3"}, {"account": "123456789012", "id": "iam:user:admin-bob", "label": "iam:user:admin-bob", "public_exposure": false, "region": "global", "sensitive": true, "type": "IAM"}, {"account": "123456789012", "id": "rds:prod-mysql", "label": "rds:prod-mysql", "public_exposure": false, "region": "us-east-1", "sensitive": true, "type": "RDS"}, {"account": "123456789012", "id": "sg-0a1b2c (web-servers)", "label": "sg-0a1b2c (web-servers)", "public_exposure": false, "region": "us-east-1", "sensitive": true, "type": "EC2"}, {"account": "unknown", "id": "prod-backups", "label": "prod-backups", "public_exposure": false, "region": "us-east-1", "sensitive": false, "type": "S3"}, {"account": "unknown", "id": "root", "label": "root", "public_exposure": true, "region": "us-east-1", "sensitive": true, "type": "IAM"}, {"account": "unknown", "id": "iam:user:alice", "label": "iam:user:alice", "public_exposure": false, "region": "us-east-1", "sensitive": true, "type": "IAM"}, {"account": "unknown", "id": "cloudtrail", "label": "cloudtrail", "public_exposure": false, "region": "us-east-1", "sensitive": false, "type": "CloudTrail"}, {"account": "unknown", "id": "vpc-0123456789abcdef0", "label": "vpc-0123456789abcdef0", "public_exposure": false, "region": "us-east-1", "sensitive": false, "type": "VPC"}, {"account": "unknown", "id": "eks:prod-cluster", "label": "eks:prod-cluster", "public_exposure": false, "region": "us-east-1", "sensitive": true, "type": "EKS"}, {"account": "unknown", "id": "secret:prod/db-password", "label": "secret:prod/db-password", "public_exposure": false, "region": "us-east-1", "sensitive": true, "type": "SecretsManager"}], "stats": {"attack_path_count": 4, "entry_points": ["my-prod-data-bucket", "root"], "sensitive_targets": ["iam:user:admin-bob", "rds:prod-mysql", "sg-0a1b2c (web-servers)", "root", "iam:user:alice", "eks:prod-cluster", "secret:prod/db-password"], "total_edges": 12, "total_nodes": 11}};
+  if (!graphData.nodes || !graphData.nodes.length) return;
+
+  const svgEl = document.getElementById('attack-graph-svg');
+  if (!svgEl) return;
+  const W = svgEl.clientWidth || 900, H = 500;
+
+  const color = t => ({ S3:'#f59e0b', IAM:'#6366f1', EC2:'#10b981', RDS:'#3b82f6',
+    VPC:'#8b5cf6', CloudTrail:'#06b6d4', EKS:'#ec4899', SecretsManager:'#f43f5e' }[t] || '#94a3b8');
+
+  const svg = d3.select(svgEl).attr('viewBox', `0 0 ${W} ${H}`);
+
+  const sim = d3.forceSimulation(graphData.nodes)
+    .force('link', d3.forceLink(graphData.links).id(d => d.id).distance(140))
+    .force('charge', d3.forceManyBody().strength(-400))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(28));
+
+  const link = svg.append('g').selectAll('line').data(graphData.links).join('line')
+    .attr('stroke', d => d.is_attack_path || d.attack_type ? '#ef4444' : '#2a2d3e')
+    .attr('stroke-width', d => d.is_attack_path || d.attack_type ? 2.5 : 1)
+    .attr('stroke-dasharray', d => d.attack_type ? '5,3' : '');
+
+  const drag = d3.drag()
+    .on('start', (e,d) => { if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+    .on('drag', (e,d) => { d.fx=e.x; d.fy=e.y; })
+    .on('end', (e,d) => { if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; });
+
+  const node = svg.append('g').selectAll('circle').data(graphData.nodes).join('circle')
+    .attr('r', d => d.public_exposure ? 16 : d.sensitive ? 14 : 10)
+    .attr('fill', d => color(d.type))
+    .attr('stroke', d => d.public_exposure ? '#ef4444' : 'transparent')
+    .attr('stroke-width', 2)
+    .call(drag);
+  node.append('title').text(d => `[${d.type}] ${d.id}`);
+
+  const label = svg.append('g').selectAll('text').data(graphData.nodes).join('text')
+    .text(d => (d.label||d.id).slice(0,18))
+    .attr('font-size', 10).attr('fill', '#94a3b8').attr('pointer-events','none');
+
+  sim.on('tick', () => {
+    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    node.attr('cx',d=>d.x).attr('cy',d=>d.y);
+    label.attr('x',d=>d.x+14).attr('y',d=>d.y+4);
+  });
+})();
+function exportCSV() {
+  const rows = [['ID','Severity','Service','Resource','Issue','CIS Control','Remediation']];
+  document.querySelectorAll('#findings-table tbody tr').forEach(row => {
+    if (row.style.display === 'none') return;
+    const cells = row.querySelectorAll('td');
+    rows.push([
+      cells[0]?.textContent.trim(),
+      cells[1]?.textContent.trim(),
+      cells[2]?.textContent.trim(),
+      cells[3]?.textContent.trim(),
+      cells[4]?.querySelector('summary')?.textContent.trim() || cells[4]?.textContent.trim(),
+      cells[5]?.textContent.trim(),
+      cells[6]?.textContent.trim(),
+    ].map(v => '"' + (v||'').replace(/"/g,'""') + '"'));
+  });
+  const blob = new Blob([rows.map(r=>r.join(',')).join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'aws-security-findings.csv';
+  a.click();
+}
+</script>
+</body>
+</html>
