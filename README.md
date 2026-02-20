@@ -1,7 +1,3 @@
-# AWS-Security-Scanner
-Enterprise-grade AWS Security Posture Scanner that audits multi-account cloud environments for misconfigurations, maps findings to CIS/NIST/PCI frameworks, performs graph-based attack path analysis, and applies risk scoring for prioritized remediation. Supports async scanning, HTML reports, and serverless deployment via Lambda and Terraform.
-
-
 # AWS Security Posture Scanner
 
 Enterprise-grade Cloud Security Posture Management (CSPM) tool for auditing AWS environments, detecting misconfigurations, analyzing attack paths, and ensuring compliance with security frameworks.
